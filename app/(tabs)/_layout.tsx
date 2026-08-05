@@ -1,19 +1,21 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-
+import { Ionicons } from '@expo/vector-icons';
 export default function TabLayout() {
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#2F65FF',
-        tabBarInactiveTintColor: '#888888',
+        tabBarActiveTintColor: '#007AFF',
+        tabBarInactiveTintColor: '#8E8E93',
         tabBarStyle: {
-          display: 'none',
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#E5E5EA',
         },
         headerShown: false,
-      }}>
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
@@ -22,10 +24,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color }) => <Ionicons name="person" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="hc05"
         options={{
-          title: 'HC-05',
-          tabBarIcon: ({ color }) => <IconSymbol size={24} name="paperplane.fill" color={color} />,
+          href: null,
         }}
       />
     </Tabs>

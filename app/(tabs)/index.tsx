@@ -1,4 +1,5 @@
 import { BluetoothPairingModal } from '@/components/BluetoothPairingModal';
+import AdminVerifyModal from '@/components/AdminVerifyModal';
 import { NumberGrid } from '@/components/NumberGrid';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ToastNotification } from '@/components/ToastNotification';
@@ -7,6 +8,8 @@ import { BluetoothDevice } from '@/services/bluetooth';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../context/AuthContext';
 
 /**
  * Format a weight grid value into OASYS TNEPDS format: X.XXX (3 decimal places, kg)
@@ -33,8 +36,12 @@ function toBytesHex(str: string): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { role } = useAuth();
+  const isAdmin = role === 'admin';
+
   const [selectedValue, setSelectedValue] = useState<string>('20');
   const [pairingModalVisible, setPairingModalVisible] = useState<boolean>(false);
+  const [adminModalVisible, setAdminModalVisible] = useState<boolean>(false);
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('Bluetooth was connected');
 
@@ -126,6 +133,16 @@ export default function HomeScreen() {
         <Text style={styles.headerTitle}>High Delite</Text>
 
         <View style={styles.headerRightRow}>
+          {isAdmin && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={styles.adminCircleBtn}
+              onPress={() => setAdminModalVisible(true)}
+            >
+              <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          )}
+
           {isConnected ? (
             <StatusBadge isConnected={true} />
           ) : (
@@ -148,6 +165,12 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <NumberGrid selectedValue={selectedValue} onSelectValue={handleSelectValue} />
       </ScrollView>
+
+      {/* Admin Security Check Modal */}
+      <AdminVerifyModal
+        visible={adminModalVisible}
+        onClose={() => setAdminModalVisible(false)}
+      />
 
       {/* Bluetooth Pairing & Connection Modal */}
       <BluetoothPairingModal
@@ -206,6 +229,15 @@ const styles = StyleSheet.create({
   },
   headerRightRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  adminCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   playCircleBtn: {
