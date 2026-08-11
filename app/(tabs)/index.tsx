@@ -88,20 +88,20 @@ export default function HomeScreen() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     await sendData(formatted);
 
-    // After 3 seconds, automatically reset weight to 0.000
+    // After 2 seconds, automatically reset weight to 0.000
     if (val !== '0' && val !== '0.50\n0') {
       resetTimerRef.current = setTimeout(async () => {
         const zeroVal = '0';
         const zeroFormatted = formatWeightForOASYS(zeroVal); // '0.000'
         const zeroHexBytes = toBytesHex(zeroFormatted);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log(`⏰ [AUTO-RESET 3s] Resetting weight to 0 → Formatted: "${zeroFormatted}"`);
+        console.log(`⏰ [AUTO-RESET 2s] Resetting weight to 0 → Formatted: "${zeroFormatted}"`);
         console.log(`   Bytes: ${zeroHexBytes}`);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         setSelectedValue(zeroVal);
         await sendData(zeroFormatted);
         resetTimerRef.current = null;
-      }, 3000);
+      }, 2000);
     }
   };
 
