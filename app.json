@@ -2,7 +2,7 @@
   "expo": {
     "name": "High Delite",
     "slug": "HC0005",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hc0005",

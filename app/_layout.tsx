@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
+import { useKeepAwake } from 'expo-keep-awake';
+
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '../context/AuthContext';
 
@@ -12,6 +14,7 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  useKeepAwake();
   const colorScheme = useColorScheme();
 
   return (
