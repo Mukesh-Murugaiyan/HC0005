@@ -1,7 +1,7 @@
 {
   "name": "hc0005",
   "main": "expo-router/entry",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -9,7 +9,10 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "androidstudio": "open -a \"Android Studio\" ./android"
+    "androidstudio": "open -a \"Android Studio\" ./android",
+    "db:migrate": "node ./scripts/migrate.js",
+    "db:migrate:up": "node ./scripts/migrate.js",
+    "db:migrate:down": "node ./scripts/migrate-down.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -28,6 +31,7 @@
     "expo-keep-awake": "~15.0.8",
     "expo-linking": "~8.0.12",
     "expo-router": "~6.0.24",
+    "expo-secure-store": "~15.0.8",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
@@ -49,6 +53,7 @@
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "supabase": "^2.113.0",
     "typescript": "~5.9.2"
   },
   "private": true

@@ -1,42 +1,12 @@
 -- ============================================================================
--- Complete Master Schema - Idempotent Baseline Setup
--- Contains: profiles table, user_device_approvals table, indexes & seed data
--- Safe to execute on both fresh databases and existing production databases.
+-- Migration: Create User Device Approvals System (UP Migration)
+-- Timestamp: 20260811000002
+-- Description: Idempotent migration creating user_device_approvals table,
+--              foreign keys, indexes, and status constraints safely.
+--              Safe to execute on BOTH Fresh DBs and Production DBs with existing data.
 -- ============================================================================
 
--- ----------------------------------------------------------------------------
--- 1. PROFILES TABLE SETUP
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  full_name TEXT NOT NULL DEFAULT '',
-  email TEXT NOT NULL UNIQUE,
-  phone TEXT DEFAULT '',
-  password TEXT NOT NULL DEFAULT '',
-  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'disabled')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Drop legacy auth.users constraint if present
-ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_id_fkey;
-
--- Ensure password column exists
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password TEXT NOT NULL DEFAULT '';
-
--- Disable RLS on profiles for direct application access
-ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
-
--- Seed Initial Admin User
-INSERT INTO public.profiles (full_name, email, phone, password, role)
-VALUES ('System Admin', 'rationapp2026@gmail.com', '', 'Admin@123456', 'admin')
-ON CONFLICT (email) DO UPDATE SET
-  role = 'admin';
-
-
--- ----------------------------------------------------------------------------
--- 2. USER DEVICE APPROVALS TABLE SETUP
--- ----------------------------------------------------------------------------
+-- 1. Create user_device_approvals table if it does not already exist
 CREATE TABLE IF NOT EXISTS public.user_device_approvals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL,
@@ -56,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.user_device_approvals (
   remarks TEXT DEFAULT ''
 );
 
--- Ensure all columns exist (idempotent for existing tables)
+-- 2. Ensure all columns exist (idempotent for existing/partially updated tables)
 ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS device_name TEXT DEFAULT '';
 ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS device_model TEXT DEFAULT '';
 ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS platform TEXT DEFAULT '';
@@ -71,7 +41,7 @@ ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS denied_at TIME
 ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS denied_by UUID;
 ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS remarks TEXT DEFAULT '';
 
--- Add Foreign Key for user_id referencing profiles(id)
+-- 3. Add Foreign Key for user_id referencing profiles(id) if not already present
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -83,7 +53,7 @@ BEGIN
   END IF;
 END $$;
 
--- Add Foreign Key for approved_by referencing profiles(id)
+-- 4. Add Foreign Key for approved_by referencing profiles(id) if not already present
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -95,7 +65,7 @@ BEGIN
   END IF;
 END $$;
 
--- Add Foreign Key for denied_by referencing profiles(id)
+-- 5. Add Foreign Key for denied_by referencing profiles(id) if not already present
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -107,7 +77,7 @@ BEGIN
   END IF;
 END $$;
 
--- Add Unique Constraint on (user_id, device_id)
+-- 6. Add Unique Constraint on (user_id, device_id) if not already present
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -118,7 +88,7 @@ BEGIN
   END IF;
 END $$;
 
--- Add Status Check Constraint ('PENDING', 'APPROVED', 'DENIED')
+-- 7. Add Status Check Constraint ('PENDING', 'APPROVED', 'DENIED') if not already present
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -130,9 +100,9 @@ BEGIN
   END IF;
 END $$;
 
--- Create Indexes IF NOT EXISTS
+-- 8. Create Indexes IF NOT EXISTS for lookup performance
 CREATE INDEX IF NOT EXISTS idx_user_device_approvals_user_device ON public.user_device_approvals(user_id, device_id);
 CREATE INDEX IF NOT EXISTS idx_user_device_approvals_status ON public.user_device_approvals(status);
 
--- Disable RLS on user_device_approvals table
+-- 9. Disable RLS on user_device_approvals table for direct application access matching profiles table pattern
 ALTER TABLE public.user_device_approvals DISABLE ROW LEVEL SECURITY;

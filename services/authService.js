@@ -1,8 +1,9 @@
 import { supabase } from './supabase';
+import { deviceService } from './deviceService';
 
 export const authService = {
   /**
-   * Log in user with email and password via profiles table
+   * Log in user with email and password via profiles table & verify device approval
    */
   async login(email, password) {
     const { data, error } = await supabase
@@ -19,19 +20,24 @@ export const authService = {
       throw new Error('Invalid email or password.');
     }
 
+    // Check or create device approval record in database
+    const deviceApproval = await deviceService.checkOrRegisterDevice(data.id, data.role);
+
     const sessionData = {
       user: data,
       session: {
         access_token: data.id,
         user: data,
       },
+      deviceApproval,
+      deviceStatus: deviceApproval?.status || 'PENDING',
     };
 
     return sessionData;
   },
 
   /**
-   * Register a new user in profiles table
+   * Register a new user in profiles table & check/register device
    */
   async register(fullName, email, phone, password, role = 'user') {
     const cleanEmail = email.trim().toLowerCase();
@@ -63,12 +69,16 @@ export const authService = {
 
     if (error) throw new Error(error.message || 'Registration failed.');
 
+    const deviceApproval = await deviceService.checkOrRegisterDevice(data.id, data.role);
+
     return {
       user: data,
       session: {
         access_token: data.id,
         user: data,
       },
+      deviceApproval,
+      deviceStatus: deviceApproval?.status || 'PENDING',
     };
   },
 
