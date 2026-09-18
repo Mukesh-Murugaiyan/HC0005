@@ -5,6 +5,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { router, useSegments } from 'expo-router';
 import { authService } from '../services/authService';
 import { deviceService } from '../services/deviceService';
+import { deviceActivityService } from '../services/deviceActivityService';
 
 /**
  * @type {React.Context<{
@@ -61,6 +62,7 @@ export const AuthProvider = ({ children }) => {
   // Clear local session & redirect to login
   const forceLogout = useCallback(async () => {
     try {
+      await deviceActivityService.stopTracking().catch(() => {});
       await AsyncStorage.removeItem(SESSION_CACHE_KEY);
       await AsyncStorage.removeItem(PROFILE_CACHE_KEY);
       await AsyncStorage.removeItem(DEVICE_APPROVAL_CACHE_KEY);
@@ -347,9 +349,7 @@ export const AuthProvider = ({ children }) => {
         await AsyncStorage.setItem(DEVICE_APPROVAL_CACHE_KEY, JSON.stringify(data.deviceApproval));
       }
 
-      if (data.deviceStatus === 'APPROVED') {
-        router.replace('/(tabs)');
-      }
+      router.replace('/(tabs)');
     }
     return data;
   };
@@ -372,7 +372,21 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
+  // 5. Active Device Activity & Online Heartbeat Tracking
+  useEffect(() => {
+    if (user?.id) {
+      deviceActivityService.startTracking(user.id);
+    } else {
+      deviceActivityService.stopTracking();
+    }
+
+    return () => {
+      deviceActivityService.stopTracking();
+    };
+  }, [user?.id]);
+
   const logout = async () => {
+    await deviceActivityService.stopTracking().catch(() => {});
     await forceLogout();
     router.replace('/(auth)/login');
   };

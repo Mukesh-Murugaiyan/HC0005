@@ -11,6 +11,7 @@ import {
   Alert,
   Platform,
   StatusBar,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -40,9 +41,10 @@ export default function AdminDashboardScreen() {
   // Devices state
   const [approvals, setApprovals] = useState([]);
   const [deviceTotalCount, setDeviceTotalCount] = useState(0);
+  const [deviceCounts, setDeviceCounts] = useState({ total: 0, online: 0, approved: 0, pending: 0, denied: 0 });
   const [devicePage, setDevicePage] = useState(1);
   const [deviceTotalPages, setDeviceTotalPages] = useState(1);
-  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'PENDING' | 'APPROVED' | 'DENIED'
+  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'ONLINE' | 'OFFLINE' | 'APPROVED' | 'PENDING' | 'DENIED'
 
   // Shared state
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,6 +107,10 @@ export default function AdminDashboardScreen() {
       setDeviceTotalCount(res.totalCount);
       setDevicePage(res.page);
       setDeviceTotalPages(res.totalPages);
+
+      if (res.counts) {
+        setDeviceCounts(res.counts);
+      }
     } catch (err) {
       Alert.alert('Error', err.message || 'Failed to fetch device approvals.');
     } finally {
@@ -122,6 +128,41 @@ export default function AdminDashboardScreen() {
       loadDevices(1, searchQuery, statusFilter);
     }
   }, [activeTab, statusFilter, searchQuery, loadUsers, loadDevices]);
+
+  // Silent in-place refresh for background polling without resetting scroll position or page count
+  const silentRefreshDevices = useCallback(async () => {
+    if (activeTab !== 'devices') return;
+    try {
+      const counts = await deviceService.fetchDeviceCounts();
+      setDeviceCounts(counts);
+
+      const currentCount = approvals.length || 10;
+      const res = await deviceService.fetchDeviceApprovals({
+        page: 1,
+        limit: Math.max(10, currentCount),
+        searchQuery,
+        statusFilter,
+      });
+
+      if (res?.approvals) {
+        setApprovals(res.approvals);
+        setDeviceTotalCount(res.totalCount);
+      }
+    } catch (_e) {
+      // Ignore background polling errors silently
+    }
+  }, [activeTab, approvals.length, searchQuery, statusFilter]);
+
+  // Real-time live polling without jump / scroll reset
+  useEffect(() => {
+    if (activeTab !== 'devices') return;
+
+    const livePollingTimer = setInterval(() => {
+      silentRefreshDevices();
+    }, 15000);
+
+    return () => clearInterval(livePollingTimer);
+  }, [activeTab, silentRefreshDevices]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -360,28 +401,133 @@ export default function AdminDashboardScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Device Status Filter Pills (Only on Devices Tab) */}
+        {/* Device Summary Stats Grid (2x2) */}
         {activeTab === 'devices' && (
-          <View style={styles.filterPillsContainer}>
-            {['ALL', 'PENDING', 'APPROVED', 'DENIED'].map((f) => (
+          <View style={styles.statsGrid}>
+            <View style={styles.statsRow}>
               <TouchableOpacity
-                key={f}
-                style={[
-                  styles.filterPill,
-                  statusFilter === f && styles.activeFilterPill,
-                ]}
-                onPress={() => setStatusFilter(f)}
+                style={[styles.statCard, statusFilter === 'ALL' && styles.activeStatCard]}
+                onPress={() => setStatusFilter('ALL')}
+                activeOpacity={0.7}
               >
-                <Text
-                  style={[
-                    styles.filterPillText,
-                    statusFilter === f && styles.activeFilterPillText,
-                  ]}
-                >
-                  {f}
+                <View style={styles.statCardHeader}>
+                  <Ionicons
+                    name="hardware-chip-outline"
+                    size={16}
+                    color={statusFilter === 'ALL' ? '#007AFF' : '#64748B'}
+                  />
+                  <Text style={[styles.statCardNum, statusFilter === 'ALL' && styles.activeStatCardNum]}>
+                    {deviceCounts.total}
+                  </Text>
+                </View>
+                <Text style={[styles.statCardLabel, statusFilter === 'ALL' && styles.activeStatCardLabel]}>
+                  Total Devices
                 </Text>
               </TouchableOpacity>
-            ))}
+
+              <TouchableOpacity
+                style={[
+                  styles.statCard,
+                  styles.onlineCardBg,
+                  statusFilter === 'ONLINE' && styles.activeOnlineCard,
+                ]}
+                onPress={() => setStatusFilter('ONLINE')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.statCardHeader}>
+                  <View style={styles.onlinePillDot} />
+                  <Text style={[styles.statCardNum, { color: '#1B5E20' }]}>
+                    {deviceCounts.online}
+                  </Text>
+                </View>
+                <Text style={[styles.statCardLabel, { color: '#2E7D32' }]}>
+                  Online Now
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.statsRow}>
+              <TouchableOpacity
+                style={[styles.statCard, statusFilter === 'APPROVED' && styles.activeStatCard]}
+                onPress={() => setStatusFilter('APPROVED')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.statCardHeader}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color="#059669" />
+                  <Text style={[styles.statCardNum, { color: '#065F46' }]}>
+                    {deviceCounts.approved}
+                  </Text>
+                </View>
+                <Text style={[styles.statCardLabel, statusFilter === 'APPROVED' && styles.activeStatCardLabel]}>
+                  Approved
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.statCard, statusFilter === 'PENDING' && styles.activeStatCard]}
+                onPress={() => setStatusFilter('PENDING')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.statCardHeader}>
+                  <Ionicons name="time-outline" size={16} color="#D97706" />
+                  <Text style={[styles.statCardNum, { color: '#92400E' }]}>
+                    {deviceCounts.pending}
+                  </Text>
+                </View>
+                <Text style={[styles.statCardLabel, statusFilter === 'PENDING' && styles.activeStatCardLabel]}>
+                  Pending Approval
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Device Status Filter Pills (Only on Devices Tab) */}
+        {activeTab === 'devices' && (
+          <View style={{ marginBottom: 12 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterPillsContainer}
+            >
+              {['ALL', 'ONLINE', 'OFFLINE', 'APPROVED', 'PENDING', 'DENIED'].map((f) => (
+                <TouchableOpacity
+                  key={f}
+                  style={[
+                    styles.filterPill,
+                    statusFilter === f && styles.activeFilterPill,
+                    f === 'ONLINE' && statusFilter !== f && styles.onlineFilterPill,
+                  ]}
+                  onPress={() => setStatusFilter(f)}
+                >
+                  {f === 'ONLINE' && (
+                    <View
+                      style={[
+                        styles.filterDot,
+                        { backgroundColor: statusFilter === 'ONLINE' ? '#FFFFFF' : '#28A745' },
+                      ]}
+                    />
+                  )}
+                  {f === 'OFFLINE' && (
+                    <View
+                      style={[
+                        styles.filterDot,
+                        { backgroundColor: statusFilter === 'OFFLINE' ? '#FFFFFF' : '#868E96' },
+                      ]}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.filterPillText,
+                      statusFilter === f && styles.activeFilterPillText,
+                      f === 'ONLINE' && statusFilter !== f && { color: '#1B5E20' },
+                    ]}
+                  >
+                    {f}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         )}
 
@@ -609,17 +755,93 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '700',
   },
-  filterPillsContainer: {
-    flexDirection: 'row',
+  statsGrid: {
     marginHorizontal: 20,
     marginBottom: 12,
     gap: 8,
   },
-  filterPill: {
+  statsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  activeStatCard: {
+    borderColor: '#007AFF',
+    backgroundColor: '#F0F7FF',
+  },
+  onlineCardBg: {
+    backgroundColor: '#F7FCF8',
+    borderColor: '#D1E7DD',
+  },
+  activeOnlineCard: {
+    borderColor: '#28A745',
+    backgroundColor: '#E8F5E9',
+  },
+  statCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  onlinePillDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#28A745',
+  },
+  statCardNum: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  activeStatCardNum: {
+    color: '#007AFF',
+  },
+  statCardLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  activeStatCardLabel: {
+    color: '#007AFF',
+    fontWeight: '700',
+  },
+  filterPillsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderRadius: 20,
     backgroundColor: '#E9ECEF',
+    gap: 5,
+  },
+  onlineFilterPill: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#C8E6C9',
+    borderWidth: 1,
+  },
+  filterDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   activeFilterPill: {
     backgroundColor: '#007AFF',
