@@ -141,8 +141,8 @@ export const deviceService = {
     const now = new Date().toISOString();
 
     if (existingRecord) {
-      // If user is admin and current status is PENDING, auto-approve admin device
-      if (userRole === 'admin' && existingRecord.status === 'PENDING') {
+      // If user is admin and current status is not APPROVED, auto-approve admin device
+      if (userRole === 'admin' && existingRecord.status !== 'APPROVED') {
         const { data: updatedRecord, error: updateError } = await supabase
           .from('user_device_approvals')
           .update({
@@ -153,6 +153,9 @@ export const deviceService = {
             device_model: metadata.deviceModel,
             os_version: metadata.osVersion,
             app_version: metadata.appVersion,
+            last_seen_at: now,
+            last_active_at: now,
+            is_online: true,
             updated_at: now,
           })
           .eq('id', existingRecord.id)
@@ -163,7 +166,7 @@ export const deviceService = {
         return updatedRecord;
       }
 
-      // Update metadata on existing record if needed
+      // Update metadata and last seen on existing record (vital for old builds connecting)
       try {
         await supabase
           .from('user_device_approvals')
@@ -172,6 +175,9 @@ export const deviceService = {
             device_model: metadata.deviceModel,
             os_version: metadata.osVersion,
             app_version: metadata.appVersion,
+            last_seen_at: now,
+            last_active_at: now,
+            is_online: true,
             updated_at: now,
           })
           .eq('id', existingRecord.id);
@@ -179,11 +185,16 @@ export const deviceService = {
         // Silently ignore background metadata update errors
       }
 
-      return existingRecord;
+      return {
+        ...existingRecord,
+        last_seen_at: now,
+        is_online: true,
+      };
     }
 
     // No record exists -> Create a new record
     const initialStatus = userRole === 'admin' ? 'APPROVED' : 'PENDING';
+    const todayStr = now.split('T')[0];
 
     const newRecordPayload = {
       user_id: userId,
@@ -194,6 +205,12 @@ export const deviceService = {
       os_version: metadata.osVersion,
       app_version: metadata.appVersion,
       status: initialStatus,
+      is_online: true,
+      last_seen_at: now,
+      last_active_at: now,
+      total_usage_seconds: 0,
+      today_usage_seconds: 0,
+      today_date: todayStr,
       created_at: now,
       updated_at: now,
       approved_at: initialStatus === 'APPROVED' ? now : null,
@@ -305,12 +322,88 @@ export const deviceService = {
       }
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Calculate real-time online status and format metrics for all records
+    const enrichApprovalRecord = (item) => {
+      const isOnlineFlag = Boolean(item.is_online);
+      const diffMs = item.last_seen_at ? Date.now() - new Date(item.last_seen_at).getTime() : Infinity;
+      // Stale cutoff is 50 seconds (2.5x heartbeat interval)
+      const computedIsOnline = isOnlineFlag && diffMs < 50000;
+
+      const isToday = item.today_date === todayStr;
+      const todaySeconds = isToday ? (item.today_usage_seconds || 0) : 0;
+
+      return {
+        ...item,
+        computed_is_online: computedIsOnline,
+        today_usage_seconds: todaySeconds,
+        formatted_usage: this.formatUsageDuration(todaySeconds),
+        formatted_today_usage: this.formatUsageDuration(todaySeconds),
+        formatted_total_usage: this.formatUsageDuration(item.total_usage_seconds || 0),
+        formatted_last_seen: this.formatLastSeen(item.last_seen_at, computedIsOnline),
+      };
+    };
+
+    let enrichedItems = finalItems.map(enrichApprovalRecord);
+
+    // Apply Online/Offline status filter if requested
+    if (statusFilter === 'ONLINE') {
+      enrichedItems = enrichedItems.filter((item) => item.computed_is_online);
+      total = enrichedItems.length;
+    } else if (statusFilter === 'OFFLINE') {
+      enrichedItems = enrichedItems.filter((item) => !item.computed_is_online);
+      total = enrichedItems.length;
+    }
+
+    const counts = await this.fetchDeviceCounts();
+
     return {
-      approvals: finalItems,
+      approvals: enrichedItems,
       totalCount: total,
       page,
       totalPages: Math.ceil(total / limit) || 1,
+      counts,
     };
+  },
+
+  /**
+   * Admin API: Fetch exact overall device counts (independent of current page/filter).
+   */
+  async fetchDeviceCounts() {
+    try {
+      const { data, error } = await supabase
+        .from('user_device_approvals')
+        .select('status, is_online, last_seen_at');
+
+      if (error || !data) {
+        return { total: 0, online: 0, approved: 0, pending: 0, denied: 0 };
+      }
+
+      const now = Date.now();
+      let total = data.length;
+      let approved = 0;
+      let pending = 0;
+      let denied = 0;
+      let online = 0;
+
+      for (const item of data) {
+        if (item.status === 'APPROVED') approved++;
+        else if (item.status === 'PENDING') pending++;
+        else if (item.status === 'DENIED') denied++;
+
+        const isOnlineFlag = Boolean(item.is_online);
+        const diffMs = item.last_seen_at ? now - new Date(item.last_seen_at).getTime() : Infinity;
+        if (isOnlineFlag && diffMs < 50000) {
+          online++;
+        }
+      }
+
+      return { total, online, approved, pending, denied };
+    } catch (err) {
+      console.warn('fetchDeviceCounts error:', err?.message);
+      return { total: 0, online: 0, approved: 0, pending: 0, denied: 0 };
+    }
   },
 
   /**
@@ -392,15 +485,142 @@ export const deviceService = {
   },
 
   /**
-   * Admin API: Delete device approval record.
+   * Format seconds into human-readable duration (e.g., '2h 15m', '45s').
    */
-  async deleteDeviceApproval(approvalId) {
+  formatUsageDuration(totalSeconds = 0) {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    if (s < 60) {
+      return `${s}s`;
+    }
+    const minutes = Math.floor(s / 60);
+    if (minutes < 60) {
+      const remainingSecs = s % 60;
+      return remainingSecs > 0 ? `${minutes}m ${remainingSecs}s` : `${minutes}m`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMins = minutes % 60;
+    if (hours < 24) {
+      return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`;
+    }
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+  },
+
+  /**
+   * Format last seen timestamp into WhatsApp-style human readable string.
+   */
+  formatLastSeen(lastSeenAt, isOnline) {
+    if (isOnline) {
+      return 'Online';
+    }
+    if (!lastSeenAt) {
+      return 'Offline (Never seen)';
+    }
+
+    const seenDate = new Date(lastSeenAt);
+    const now = new Date();
+    const diffMs = now.getTime() - seenDate.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+
+    if (diffSecs < 60) {
+      return 'Last seen just now';
+    }
+    const diffMins = Math.floor(diffSecs / 60);
+    if (diffMins < 60) {
+      return `Last seen ${diffMins}m ago`;
+    }
+
+    // Check if seen today
+    const isToday =
+      seenDate.getDate() === now.getDate() &&
+      seenDate.getMonth() === now.getMonth() &&
+      seenDate.getFullYear() === now.getFullYear();
+
+    const timeStr = seenDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    if (isToday) {
+      return `Last seen today at ${timeStr}`;
+    }
+
+    // Check if seen yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday =
+      seenDate.getDate() === yesterday.getDate() &&
+      seenDate.getMonth() === yesterday.getMonth() &&
+      seenDate.getFullYear() === yesterday.getFullYear();
+
+    if (isYesterday) {
+      return `Last seen yesterday at ${timeStr}`;
+    }
+
+    const dateStr = seenDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return `Last seen ${dateStr} at ${timeStr}`;
+  },
+
+  /**
+   * Fetch all devices used by a specific user with online status and usage duration.
+   */
+  async fetchUserDevices(userId) {
+    if (!userId) return [];
+
     const { data, error } = await supabase
       .from('user_device_approvals')
-      .delete()
-      .eq('id', approvalId);
+      .select('*')
+      .eq('user_id', userId)
+      .order('last_seen_at', { ascending: false });
 
-    if (error) throw error;
-    return data;
+    if (error) {
+      console.warn('fetchUserDevices error:', error?.message);
+      return [];
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    return (data || []).map((item) => {
+      const isOnlineFlag = Boolean(item.is_online);
+      const diffMs = item.last_seen_at ? Date.now() - new Date(item.last_seen_at).getTime() : Infinity;
+      const computedIsOnline = isOnlineFlag && diffMs < 50000;
+
+      const isToday = item.today_date === todayStr;
+      const todaySeconds = isToday ? (item.today_usage_seconds || 0) : 0;
+
+      return {
+        ...item,
+        computed_is_online: computedIsOnline,
+        today_usage_seconds: todaySeconds,
+        formatted_usage: this.formatUsageDuration(todaySeconds),
+        formatted_today_usage: this.formatUsageDuration(todaySeconds),
+        formatted_total_usage: this.formatUsageDuration(item.total_usage_seconds || 0),
+        formatted_last_seen: this.formatLastSeen(item.last_seen_at, computedIsOnline),
+      };
+    });
+  },
+
+  /**
+   * Fetch historical activity sessions for a user and device.
+   */
+  async fetchDeviceSessions(userId, deviceId, limit = 20) {
+    if (!userId || !deviceId) return [];
+
+    const { data, error } = await supabase
+      .from('device_activity_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('device_id', deviceId)
+      .order('session_start', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.warn('fetchDeviceSessions error:', error?.message);
+      return [];
+    }
+
+    return (data || []).map((sess) => ({
+      ...sess,
+      formatted_duration: this.formatUsageDuration(sess.duration_seconds || 0),
+    }));
   },
 };
+

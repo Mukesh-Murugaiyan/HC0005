@@ -13,8 +13,6 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
         month: 'short',
         day: 'numeric',
         year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
       })
     : 'Unknown Date';
 
@@ -27,7 +25,7 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
 
   return (
     <View style={styles.card}>
-      {/* Top Header: User Info & Status Badge */}
+      {/* Top Header: User Info & Status Badges */}
       <View style={styles.cardHeader}>
         <View style={styles.userInfo}>
           <View style={styles.avatarCircle}>
@@ -45,71 +43,139 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
           </View>
         </View>
 
-        <View
-          style={[
-            styles.statusBadge,
-            isApproved && styles.approvedBadge,
-            isPending && styles.pendingBadge,
-            isDenied && styles.deniedBadge,
-          ]}
-        >
-          <Text
+        <View style={styles.badgeColumn}>
+          {/* Real-time Online / Offline WhatsApp-style Badge */}
+          <View
             style={[
-              styles.statusText,
-              isApproved && styles.approvedText,
-              isPending && styles.pendingText,
-              isDenied && styles.deniedText,
+              styles.activityBadge,
+              approval.computed_is_online ? styles.onlineActivityBadge : styles.offlineActivityBadge,
             ]}
           >
-            {approval.status}
-          </Text>
+            <View
+              style={[
+                styles.activityDot,
+                approval.computed_is_online ? styles.onlineDot : styles.offlineDot,
+              ]}
+            />
+            <Text
+              style={[
+                styles.activityText,
+                approval.computed_is_online ? styles.onlineText : styles.offlineText,
+              ]}
+              numberOfLines={1}
+            >
+              {approval.computed_is_online ? 'Online' : 'Offline'}
+            </Text>
+          </View>
+
+          {/* Device Approval Status Badge */}
+          <View
+            style={[
+              styles.statusBadge,
+              isApproved && styles.approvedBadge,
+              isPending && styles.pendingBadge,
+              isDenied && styles.deniedBadge,
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusText,
+                isApproved && styles.approvedText,
+                isPending && styles.pendingText,
+                isDenied && styles.deniedText,
+              ]}
+            >
+              {approval.status}
+            </Text>
+          </View>
         </View>
       </View>
 
       <View style={styles.divider} />
 
-      {/* Device Specs Details */}
-      <View style={styles.deviceDetailsContainer}>
-        <View style={styles.deviceRow}>
-          <Ionicons name={getPlatformIcon()} size={18} color="#007AFF" style={styles.deviceIcon} />
-          <Text style={styles.deviceName} numberOfLines={1}>
-            {approval.device_name || 'Unknown Device'} ({approval.device_model || 'N/A'})
-          </Text>
+      {/* Device Specs Header */}
+      <View style={styles.deviceRow}>
+        <View style={styles.deviceIconWrapper}>
+          <Ionicons name={getPlatformIcon()} size={16} color="#007AFF" />
         </View>
-
-        <View style={styles.metaGrid}>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>OS Version</Text>
-            <Text style={styles.metaValue}>{approval.os_version || 'N/A'}</Text>
-          </View>
-
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>App Version</Text>
-            <Text style={styles.metaValue}>v{approval.app_version || '1.0.0'}</Text>
-          </View>
-
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Requested</Text>
-            <Text style={styles.metaValue}>{formattedDate}</Text>
-          </View>
-        </View>
-
-        {/* Device ID preview */}
-        <View style={styles.idRow}>
-          <Text style={styles.idLabel}>ID:</Text>
-          <Text style={styles.idValue} numberOfLines={1} ellipsizeMode="middle">
-            {approval.device_id}
-          </Text>
-        </View>
-
-        {/* Remarks section if exists */}
-        {approval.remarks ? (
-          <View style={styles.remarksBox}>
-            <Text style={styles.remarksLabel}>Remarks:</Text>
-            <Text style={styles.remarksText}>{approval.remarks}</Text>
-          </View>
-        ) : null}
+        <Text style={styles.deviceName} numberOfLines={1}>
+          {approval.device_name || 'Unknown Device'}
+          {approval.device_model ? ` (${approval.device_model})` : ''}
+        </Text>
       </View>
+
+      {/* Live Activity & Current Day Usage Metrics (2-Card Stacked Grid to prevent text overlap) */}
+      <View style={styles.metricsContainer}>
+        <View style={styles.metricCard}>
+          <View style={styles.metricHeader}>
+            <Ionicons name="time-outline" size={13} color="#0284C7" />
+            <Text style={styles.metricLabel}>{"Today's Usage"}</Text>
+          </View>
+          <Text style={styles.metricPrimaryValue} numberOfLines={1}>
+            {approval.formatted_today_usage || approval.formatted_usage || '0s'}
+          </Text>
+        </View>
+
+        <View style={styles.metricCard}>
+          <View style={styles.metricHeader}>
+            <Ionicons
+              name={approval.computed_is_online ? 'radio' : 'radio-outline'}
+              size={13}
+              color={approval.computed_is_online ? '#16A34A' : '#64748B'}
+            />
+            <Text style={styles.metricLabel}>Last Seen</Text>
+          </View>
+          <Text
+            style={[
+              styles.metricPrimaryValue,
+              approval.computed_is_online && styles.onlineMetricValue,
+            ]}
+            numberOfLines={1}
+          >
+            {approval.computed_is_online ? 'Active Now' : (approval.formatted_last_seen || 'Offline')}
+          </Text>
+        </View>
+      </View>
+
+      {/* Metadata Row: OS, App Version, and Requested Date */}
+      <View style={styles.metaRow}>
+        <View style={styles.metaCol}>
+          <Text style={styles.metaLabel}>OS Version</Text>
+          <Text style={styles.metaValue} numberOfLines={1}>
+            {approval.os_version || 'N/A'}
+          </Text>
+        </View>
+
+        <View style={styles.metaCol}>
+          <Text style={styles.metaLabel}>App Version</Text>
+          <Text style={styles.metaValue} numberOfLines={1}>
+            v{approval.app_version || '1.0.0'}
+          </Text>
+        </View>
+
+        <View style={[styles.metaCol, styles.metaColDate]}>
+          <Text style={styles.metaLabel}>Requested</Text>
+          <Text style={styles.metaValue} numberOfLines={1}>
+            {formattedDate}
+          </Text>
+        </View>
+      </View>
+
+      {/* Device ID preview */}
+      <View style={styles.idContainer}>
+        <Text style={styles.idLabel}>ID:</Text>
+        <Text style={styles.idValue} numberOfLines={1} ellipsizeMode="middle">
+          {approval.device_id}
+        </Text>
+      </View>
+
+      {/* Remarks section if exists */}
+      {approval.remarks ? (
+        <View style={styles.remarksBox}>
+          <Text style={styles.remarksLabel}>Remarks:</Text>
+          <Text style={styles.remarksText}>{approval.remarks}</Text>
+        </View>
+      ) : null}
 
       {/* Action Buttons Footer */}
       <View style={styles.cardFooter}>
@@ -118,24 +184,27 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
             <TouchableOpacity
               style={[styles.btn, styles.approveBtn]}
               onPress={() => onApprove(approval)}
+              activeOpacity={0.8}
             >
-              <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+              <Ionicons name="checkmark-circle" size={15} color="#FFFFFF" />
               <Text style={styles.btnTextWhite}>Approve</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.btn, styles.denyBtn]}
               onPress={() => onDeny(approval)}
+              activeOpacity={0.8}
             >
-              <Ionicons name="close-circle" size={16} color="#FFFFFF" />
+              <Ionicons name="close-circle" size={15} color="#FFFFFF" />
               <Text style={styles.btnTextWhite}>Deny</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.btn, styles.editBtn]}
               onPress={() => onEdit(approval)}
+              activeOpacity={0.8}
             >
-              <Ionicons name="create-outline" size={16} color="#495057" />
+              <Ionicons name="create-outline" size={15} color="#475569" />
               <Text style={styles.btnTextDark}>Edit</Text>
             </TouchableOpacity>
           </>
@@ -144,29 +213,32 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
             <TouchableOpacity
               style={[styles.btn, styles.editBtn, { flex: 1 }]}
               onPress={() => onEdit(approval)}
+              activeOpacity={0.8}
             >
-              <Ionicons name="create-outline" size={16} color="#007AFF" />
+              <Ionicons name="create-outline" size={15} color="#007AFF" />
               <Text style={[styles.btnTextDark, { color: '#007AFF' }]}>
-                Edit Approval Status & Remarks
+                Edit Approval
               </Text>
             </TouchableOpacity>
 
             {isDenied && (
               <TouchableOpacity
-                style={[styles.btn, styles.approveBtn]}
+                style={[styles.btn, styles.approveBtn, { flex: 1 }]}
                 onPress={() => onApprove(approval)}
+                activeOpacity={0.8}
               >
-                <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+                <Ionicons name="checkmark-circle" size={15} color="#FFFFFF" />
                 <Text style={styles.btnTextWhite}>Re-Approve</Text>
               </TouchableOpacity>
             )}
 
             {isApproved && (
               <TouchableOpacity
-                style={[styles.btn, styles.denyBtn]}
+                style={[styles.btn, styles.denyBtn, { flex: 1 }]}
                 onPress={() => onDeny(approval)}
+                activeOpacity={0.8}
               >
-                <Ionicons name="close-circle" size={16} color="#FFFFFF" />
+                <Ionicons name="close-circle" size={15} color="#FFFFFF" />
                 <Text style={styles.btnTextWhite}>Revoke</Text>
               </TouchableOpacity>
             )}
@@ -181,10 +253,10 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: '#E2E8F0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
@@ -200,16 +272,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 10,
+    marginRight: 8,
   },
   avatarCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EBF5FF',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#EFF6FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
   },
   avatarText: {
     fontSize: 16,
@@ -222,17 +296,60 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#212529',
+    color: '#0F172A',
   },
   userEmail: {
     fontSize: 12,
-    color: '#6C757D',
-    marginTop: 2,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  badgeColumn: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  activityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
+    gap: 4,
+  },
+  onlineActivityBadge: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+    borderWidth: 1,
+  },
+  offlineActivityBadge: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+  },
+  activityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  onlineDot: {
+    backgroundColor: '#16A34A',
+  },
+  offlineDot: {
+    backgroundColor: '#94A3B8',
+  },
+  activityText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  onlineText: {
+    color: '#15803D',
+  },
+  offlineText: {
+    color: '#64748B',
   },
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   approvedBadge: {
     backgroundColor: '#D1FAE5',
@@ -244,7 +361,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
   },
   statusText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
@@ -259,97 +376,145 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#F1F3F5',
-    marginVertical: 12,
-  },
-  deviceDetailsContainer: {
-    gap: 8,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 10,
   },
   deviceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
+    marginBottom: 8,
   },
-  deviceIcon: {
-    marginRight: 4,
+  deviceIconWrapper: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   deviceName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#343A40',
+    color: '#1E293B',
     flex: 1,
   },
-  metaGrid: {
+  metricsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 4,
+    gap: 8,
+    marginBottom: 8,
   },
-  metaItem: {
+  metricCard: {
     flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 3,
+  },
+  metricLabel: {
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.2,
+  },
+  metricPrimaryValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  onlineMetricValue: {
+    color: '#16A34A',
+    fontWeight: '800',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  metaCol: {
+    flex: 1,
+  },
+  metaColDate: {
+    flex: 1.2,
   },
   metaLabel: {
-    fontSize: 11,
-    color: '#6C757D',
+    fontSize: 10,
+    color: '#94A3B8',
     fontWeight: '500',
   },
   metaValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#212529',
-    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#334155',
+    marginTop: 1,
   },
-  idRow: {
+  idContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 4,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   idLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    color: '#868E96',
+    color: '#64748B',
   },
   idValue: {
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#495057',
+    color: '#334155',
     flex: 1,
   },
   remarksBox: {
-    backgroundColor: '#FFF9DB',
-    borderColor: '#FFE066',
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
     borderWidth: 1,
     borderRadius: 8,
     padding: 8,
-    marginTop: 6,
+    marginTop: 8,
   },
   remarksLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#F59F00',
+    color: '#D97706',
   },
   remarksText: {
     fontSize: 12,
-    color: '#5C4813',
+    color: '#78350F',
     marginTop: 2,
   },
   cardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 14,
+    marginTop: 10,
   },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingHorizontal: 10,
+    borderRadius: 9,
     gap: 4,
+    flex: 1,
   },
   approveBtn: {
     backgroundColor: '#10B981',
@@ -358,18 +523,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
   },
   editBtn: {
-    backgroundColor: '#F1F3F5',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#CED4DA',
+    borderColor: '#CBD5E1',
   },
   btnTextWhite: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   btnTextDark: {
-    color: '#495057',
-    fontSize: 13,
+    color: '#334155',
+    fontSize: 12,
     fontWeight: '600',
   },
 });
