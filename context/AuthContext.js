@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { router, useSegments } from 'expo-router';
@@ -19,7 +20,8 @@ import { deviceService } from '../services/deviceService';
  *   register: (...args: any[]) => Promise<any>;
  *   logout: () => Promise<void>;
  *   refreshProfile: () => Promise<void>;
- *   checkDeviceStatus: () => Promise<any>;
+ *   checkDeviceStatus: (targetUserId?: string, targetRole?: string) => Promise<any>;
+ *   retryConnectionAndCheckApproval: () => Promise<any>;
  * }>}
  */
 const AuthContext = createContext({
@@ -36,11 +38,13 @@ const AuthContext = createContext({
   logout: async () => {},
   refreshProfile: async () => {},
   checkDeviceStatus: async () => {},
+  retryConnectionAndCheckApproval: async () => {},
 });
 
 const PROFILE_CACHE_KEY = 'HC0005_CACHED_PROFILE';
 const SESSION_CACHE_KEY = 'HC0005_CACHED_SESSION';
 const DEVICE_APPROVAL_CACHE_KEY = 'HC0005_CACHED_DEVICE_APPROVAL';
+const THIRTY_MINUTES_MS = 30 * 60 * 1000; // 30 minutes
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -51,6 +55,8 @@ export const AuthProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
   const segments = useSegments();
+
+  const appStateRef = useRef(AppState.currentState);
 
   // Clear local session & redirect to login
   const forceLogout = useCallback(async () => {
@@ -76,6 +82,15 @@ export const AuthProvider = ({ children }) => {
     if (!uid) return null;
 
     try {
+      const netState = await NetInfo.fetch();
+      const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
+      setIsOffline(!online);
+
+      if (!online) {
+        console.warn('Cannot verify device approval while offline');
+        return null;
+      }
+
       const record = await deviceService.checkOrRegisterDevice(uid, roleToUse);
       if (record) {
         setDeviceApprovalRecord(record);
@@ -84,7 +99,7 @@ export const AuthProvider = ({ children }) => {
         return record;
       }
     } catch (err) {
-      console.warn('Failed to check device status:', err.message);
+      console.warn('Failed to check device status:', err?.message);
     }
 
     // Cached fallback
@@ -110,7 +125,7 @@ export const AuthProvider = ({ children }) => {
         return data;
       }
     } catch (err) {
-      console.warn('Failed to fetch remote profile:', err.message);
+      console.warn('Failed to fetch remote profile:', err?.message);
     }
 
     const cached = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
@@ -129,7 +144,7 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(true);
     try {
       const netState = await NetInfo.fetch();
-      const online = netState.isConnected && netState.isInternetReachable !== false;
+      const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
       setIsOffline(!online);
 
       const savedSessionStr = await AsyncStorage.getItem(SESSION_CACHE_KEY);
@@ -169,7 +184,7 @@ export const AuthProvider = ({ children }) => {
           await forceLogout();
         }
       } else {
-        // Offline: use stored session, cached profile & cached device status
+        // Offline: use stored session & cached profile, but require internet
         setSession(savedSession);
         setUser(savedSession.user);
         const cached = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
@@ -185,7 +200,6 @@ export const AuthProvider = ({ children }) => {
           setDeviceApprovalRecord(parsed);
           setDeviceStatus(parsed.status || 'PENDING');
         } else {
-          // If no cached approval offline, default to PENDING to prevent bypass
           setDeviceStatus('PENDING');
         }
       }
@@ -197,18 +211,104 @@ export const AuthProvider = ({ children }) => {
     }
   }, [forceLogout]);
 
+  // Retry connection and verify approval status immediately
+  const retryConnectionAndCheckApproval = useCallback(async () => {
+    const netState = await NetInfo.fetch();
+    const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
+    setIsOffline(!online);
+
+    if (!online) {
+      throw new Error('No internet connection available. Please turn on Wi-Fi or Mobile Data.');
+    }
+
+    const currentUserId = user?.id || session?.user?.id;
+    if (currentUserId) {
+      return await checkDeviceStatus(currentUserId);
+    } else {
+      await initializeAuth();
+      return null;
+    }
+  }, [user, session, checkDeviceStatus, initializeAuth]);
+
+  // 1. Initial Launch check
   useEffect(() => {
     initializeAuth();
+  }, [initializeAuth]);
 
-    const unsubscribeNetInfo = NetInfo.addEventListener((state) => {
-      const online = state.isConnected && state.isInternetReachable !== false;
-      setIsOffline(!online);
+  // 2. Real-time Network Connectivity Monitoring & Automatic Re-check
+  useEffect(() => {
+    const unsubscribeNetInfo = NetInfo.addEventListener(async (state) => {
+      const online = Boolean(state.isConnected && state.isInternetReachable !== false);
+      setIsOffline((prevOffline) => {
+        // If we were offline and are now back online, automatically re-check approval status
+        if (prevOffline && online) {
+          console.log('🌐 Network connection restored. Auto-checking device approval status...');
+          const currentUserId = user?.id || session?.user?.id;
+          if (currentUserId) {
+            checkDeviceStatus(currentUserId);
+          } else {
+            initializeAuth();
+          }
+        }
+        return !online;
+      });
     });
 
     return () => {
       unsubscribeNetInfo();
     };
-  }, [initializeAuth]);
+  }, [user, session, checkDeviceStatus, initializeAuth]);
+
+  // 3. App State Lifecycle (Foreground / Background transitions)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      // Transitioning from background or inactive into active (foreground)
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('📱 App brought to foreground. Verifying connection and approval status...');
+        const netState = await NetInfo.fetch();
+        const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
+        setIsOffline(!online);
+
+        if (online) {
+          const currentUserId = user?.id || session?.user?.id;
+          if (currentUserId) {
+            await checkDeviceStatus(currentUserId);
+          }
+        }
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [user, session, checkDeviceStatus]);
+
+  // 4. Periodic 30-Minute Check while App is Open
+  useEffect(() => {
+    const intervalId = setInterval(async () => {
+      if (AppState.currentState === 'active') {
+        console.log('⏰ 30-minute periodic device approval check triggered...');
+        const netState = await NetInfo.fetch();
+        const online = Boolean(netState.isConnected && netState.isInternetReachable !== false);
+        setIsOffline(!online);
+
+        if (online) {
+          const currentUserId = user?.id || session?.user?.id;
+          if (currentUserId) {
+            await checkDeviceStatus(currentUserId);
+          }
+        }
+      }
+    }, THIRTY_MINUTES_MS);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [user, session, checkDeviceStatus]);
 
   // Route protection & redirection based on Auth State, Role, and Device Status
   useEffect(() => {
@@ -300,6 +400,7 @@ export const AuthProvider = ({ children }) => {
         logout,
         refreshProfile,
         checkDeviceStatus,
+        retryConnectionAndCheckApproval,
       }}
     >
       {children}

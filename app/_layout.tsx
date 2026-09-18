@@ -9,6 +9,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import DeviceApprovalBlockedView from '../components/DeviceApprovalBlockedView';
+import InternetConnectionRequiredView from '../components/InternetConnectionRequiredView';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -16,9 +17,14 @@ export const unstable_settings = {
 
 function RootNavigator() {
   const colorScheme = useColorScheme();
-  const { user, session, deviceStatus, isLoading } = useAuth();
+  const { user, session, deviceStatus, isLoading, isOffline, retryConnectionAndCheckApproval } = useAuth();
 
-  // If user is authenticated but their device status is PENDING or DENIED, show blocked approval view
+  // 1. If offline, require internet connection to verify approval & security status
+  if (!isLoading && isOffline) {
+    return <InternetConnectionRequiredView onRetry={retryConnectionAndCheckApproval} />;
+  }
+
+  // 2. If user is authenticated but their device status is PENDING or DENIED, show blocked approval view
   const isDeviceBlocked = user && session && (deviceStatus === 'PENDING' || deviceStatus === 'DENIED');
 
   if (!isLoading && isDeviceBlocked) {
