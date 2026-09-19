@@ -268,3 +268,90 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.record_device_heartbeat(UUID, TEXT, BOOLEAN, INTEGER, TEXT, TEXT, TEXT) TO authenticated, anon, service_role;
 
+-- ============================================================================
+-- Device Subscription & Automated 30-Day Expiry System
+-- ============================================================================
+
+ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS subscription_start_at TIMESTAMPTZ;
+ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMPTZ;
+ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS subscription_days INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE public.user_device_approvals ADD COLUMN IF NOT EXISTS is_subscription_active BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_user_device_approvals_sub_expiry ON public.user_device_approvals(subscription_expires_at);
+CREATE INDEX IF NOT EXISTS idx_user_device_approvals_sub_active ON public.user_device_approvals(is_subscription_active, subscription_expires_at);
+
+-- Trigger: Automatically activate 30-day subscription window on approval
+CREATE OR REPLACE FUNCTION public.trigger_handle_device_approval_subscription()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_now TIMESTAMPTZ := NOW();
+  v_days INTEGER;
+BEGIN
+  IF NEW.status = 'APPROVED' THEN
+    IF (TG_OP = 'INSERT') 
+       OR (OLD.status IS DISTINCT FROM 'APPROVED') 
+       OR (NEW.approved_at IS DISTINCT FROM OLD.approved_at)
+       OR (NEW.subscription_start_at IS NULL)
+       OR (NEW.subscription_expires_at IS NULL) THEN
+      
+      IF (TG_OP = 'INSERT') OR (OLD.status IS DISTINCT FROM 'APPROVED') OR (NEW.approved_at IS NULL) THEN
+        NEW.approved_at := COALESCE(NEW.approved_at, v_now);
+      END IF;
+
+      NEW.subscription_start_at := NEW.approved_at;
+      v_days := GREATEST(1, COALESCE(NEW.subscription_days, 30));
+      NEW.subscription_days := v_days;
+      NEW.subscription_expires_at := NEW.subscription_start_at + (v_days || ' days')::INTERVAL;
+      NEW.is_subscription_active := (NEW.subscription_expires_at > v_now);
+    END IF;
+  ELSIF NEW.status IN ('PENDING', 'DENIED') THEN
+    NEW.is_subscription_active := FALSE;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_handle_device_approval_subscription ON public.user_device_approvals;
+CREATE TRIGGER trg_handle_device_approval_subscription
+BEFORE INSERT OR UPDATE OF status, approved_at, subscription_days
+ON public.user_device_approvals
+FOR EACH ROW
+EXECUTE FUNCTION public.trigger_handle_device_approval_subscription();
+
+-- Stored Procedure: Expire overdue device subscriptions and revert status to PENDING
+CREATE OR REPLACE FUNCTION public.expire_overdue_device_subscriptions()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_count INTEGER;
+  v_now TIMESTAMPTZ := NOW();
+BEGIN
+  UPDATE public.user_device_approvals
+  SET
+    status = 'PENDING',
+    is_subscription_active = FALSE,
+    remarks = CASE
+      WHEN remarks IS NULL OR remarks = '' 
+        THEN 'Subscription period (30 days) completed. Device status automatically reverted to Pending.'
+      WHEN remarks NOT LIKE '%Subscription period (30 days) completed%' 
+        THEN remarks || ' | Subscription period (30 days) completed. Device status automatically reverted to Pending.'
+      ELSE remarks
+    END,
+    updated_at = v_now
+  WHERE status = 'APPROVED'
+    AND subscription_expires_at IS NOT NULL
+    AND subscription_expires_at <= v_now;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.expire_overdue_device_subscriptions() TO authenticated, anon, service_role;
+
+

@@ -2,11 +2,12 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit }) {
+export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit, onDelete }) {
   const profile = approval.profiles || {};
   const isPending = approval.status === 'PENDING';
   const isApproved = approval.status === 'APPROVED';
   const isDenied = approval.status === 'DENIED';
+  const isExpired = Boolean(approval.is_subscription_expired);
 
   const formattedDate = approval.created_at
     ? new Date(approval.created_at).toLocaleDateString(undefined, {
@@ -68,25 +69,43 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
             </Text>
           </View>
 
-          {/* Device Approval Status Badge */}
-          <View
-            style={[
-              styles.statusBadge,
-              isApproved && styles.approvedBadge,
-              isPending && styles.pendingBadge,
-              isDenied && styles.deniedBadge,
-            ]}
-          >
-            <Text
+          {/* Device Approval & Subscription Status Badge */}
+          <View style={styles.statusRow}>
+            {approval.subscription_status === 'ACTIVE' && (
+              <View style={styles.subActiveBadge}>
+                <Ionicons name="time-outline" size={10} color="#047857" />
+                <Text style={styles.subActiveText}>
+                  {approval.subscription_badge_text || 'Active'}
+                </Text>
+              </View>
+            )}
+
+            {isExpired && (
+              <View style={styles.subExpiredBadge}>
+                <Ionicons name="alert-circle-outline" size={10} color="#B45309" />
+                <Text style={styles.subExpiredText}>Expired</Text>
+              </View>
+            )}
+
+            <View
               style={[
-                styles.statusText,
-                isApproved && styles.approvedText,
-                isPending && styles.pendingText,
-                isDenied && styles.deniedText,
+                styles.statusBadge,
+                isApproved && styles.approvedBadge,
+                isPending && styles.pendingBadge,
+                isDenied && styles.deniedBadge,
               ]}
             >
-              {approval.status}
-            </Text>
+              <Text
+                style={[
+                  styles.statusText,
+                  isApproved && styles.approvedText,
+                  isPending && styles.pendingText,
+                  isDenied && styles.deniedText,
+                ]}
+              >
+                {approval.status}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -136,6 +155,31 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
           </Text>
         </View>
       </View>
+
+      {/* Subscription Period Banner if Available */}
+      {approval.formatted_subscription_period ? (
+        <View
+          style={[
+            styles.subscriptionBanner,
+            isExpired ? styles.subBannerExpired : styles.subBannerActive,
+          ]}
+        >
+          <Ionicons
+            name="calendar-outline"
+            size={13}
+            color={isExpired ? '#B45309' : '#0284C7'}
+          />
+          <Text
+            style={[
+              styles.subscriptionBannerText,
+              isExpired && { color: '#92400E' },
+            ]}
+            numberOfLines={1}
+          >
+            {`30-Day Period: ${approval.formatted_subscription_period}`}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Metadata Row: OS, App Version, and Requested Date */}
       <View style={styles.metaRow}>
@@ -187,7 +231,9 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
               activeOpacity={0.8}
             >
               <Ionicons name="checkmark-circle" size={15} color="#FFFFFF" />
-              <Text style={styles.btnTextWhite}>Approve</Text>
+              <Text style={styles.btnTextWhite}>
+                {isExpired ? 'Renew (30d)' : 'Approve (30d)'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -207,6 +253,16 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
               <Ionicons name="create-outline" size={15} color="#475569" />
               <Text style={styles.btnTextDark}>Edit</Text>
             </TouchableOpacity>
+
+            {onDelete && (
+              <TouchableOpacity
+                style={[styles.btn, styles.deleteBtn]}
+                onPress={() => onDelete(approval)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash-outline" size={15} color="#EF4444" />
+              </TouchableOpacity>
+            )}
           </>
         ) : (
           <>
@@ -228,7 +284,7 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
                 activeOpacity={0.8}
               >
                 <Ionicons name="checkmark-circle" size={15} color="#FFFFFF" />
-                <Text style={styles.btnTextWhite}>Re-Approve</Text>
+                <Text style={styles.btnTextWhite}>Approve (30d)</Text>
               </TouchableOpacity>
             )}
 
@@ -240,6 +296,16 @@ export default function DeviceApprovalCard({ approval, onApprove, onDeny, onEdit
               >
                 <Ionicons name="close-circle" size={15} color="#FFFFFF" />
                 <Text style={styles.btnTextWhite}>Revoke</Text>
+              </TouchableOpacity>
+            )}
+
+            {onDelete && (
+              <TouchableOpacity
+                style={[styles.btn, styles.deleteBtn]}
+                onPress={() => onDelete(approval)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash-outline" size={15} color="#EF4444" />
               </TouchableOpacity>
             )}
           </>
@@ -307,6 +373,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 4,
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   activityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -345,6 +416,38 @@ const styles = StyleSheet.create({
   },
   offlineText: {
     color: '#64748B',
+  },
+  subActiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  subActiveText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#047857',
+  },
+  subExpiredBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  subExpiredText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#B45309',
   },
   statusBadge: {
     paddingHorizontal: 8,
@@ -434,6 +537,30 @@ const styles = StyleSheet.create({
   onlineMetricValue: {
     color: '#16A34A',
     fontWeight: '800',
+  },
+  subscriptionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  subBannerActive: {
+    backgroundColor: '#F0F9FF',
+    borderColor: '#BAE6FD',
+  },
+  subBannerExpired: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  subscriptionBannerText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0369A1',
+    flex: 1,
   },
   metaRow: {
     flexDirection: 'row',
@@ -526,6 +653,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#CBD5E1',
+  },
+  deleteBtn: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    paddingHorizontal: 10,
+    flex: 0,
   },
   btnTextWhite: {
     color: '#FFFFFF',

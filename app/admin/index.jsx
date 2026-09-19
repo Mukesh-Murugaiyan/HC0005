@@ -41,10 +41,10 @@ export default function AdminDashboardScreen() {
   // Devices state
   const [approvals, setApprovals] = useState([]);
   const [deviceTotalCount, setDeviceTotalCount] = useState(0);
-  const [deviceCounts, setDeviceCounts] = useState({ total: 0, online: 0, approved: 0, pending: 0, denied: 0 });
+  const [deviceCounts, setDeviceCounts] = useState({ total: 0, online: 0, offline: 0, approved: 0, pending: 0, expired: 0, denied: 0 });
   const [devicePage, setDevicePage] = useState(1);
   const [deviceTotalPages, setDeviceTotalPages] = useState(1);
-  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'ONLINE' | 'OFFLINE' | 'APPROVED' | 'PENDING' | 'DENIED'
+  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'ONLINE' | 'OFFLINE' | 'APPROVED' | 'PENDING' | 'EXPIRED' | 'DENIED'
 
   // Shared state
   const [searchQuery, setSearchQuery] = useState('');
@@ -273,19 +273,20 @@ export default function AdminDashboardScreen() {
   // Device Approval Actions
   const handleApproveDevice = (approval) => {
     const userName = approval.profiles?.full_name || approval.profiles?.email || 'User';
+    const isRenew = Boolean(approval.is_subscription_expired);
     Alert.alert(
-      'Approve Device',
-      `Approve ${approval.device_name || 'this device'} for ${userName}?`,
+      isRenew ? 'Renew Device Access (30 Days)' : 'Approve Device (30 Days)',
+      `${isRenew ? 'Renew 30-day access for' : 'Grant 30-day access to'} ${approval.device_name || 'this device'} (${userName})?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Approve',
+          text: isRenew ? 'Renew (30 Days)' : 'Approve (30 Days)',
           style: 'default',
           onPress: async () => {
             try {
-              await deviceService.approveDevice(approval.id, currentUser?.id, 'Approved by admin');
+              await deviceService.approveDevice(approval.id, currentUser?.id, 'Approved by admin (30-day access)', 30);
               loadDevices(1, searchQuery, statusFilter);
-              Alert.alert('Success', 'Device has been approved successfully.');
+              Alert.alert('Success', 'Device access has been granted for 30 days.');
             } catch (err) {
               Alert.alert('Error', err.message || 'Failed to approve device.');
             }
@@ -322,6 +323,32 @@ export default function AdminDashboardScreen() {
   const handleOpenEditDevice = (approval) => {
     setSelectedApproval(approval);
     setEditDeviceModalVisible(true);
+  };
+
+  const handleDeleteDevice = (approval) => {
+    const deviceName = approval.device_name || 'this device';
+    const userName = approval.profiles?.full_name || approval.profiles?.email || 'User';
+
+    Alert.alert(
+      'Delete Device',
+      `Are you sure you want to permanently delete ${deviceName} for ${userName}?\n\nThis will remove the device approval record and reset its access.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deviceService.deleteDevice(approval.id);
+              loadDevices(devicePage, searchQuery, statusFilter);
+              Alert.alert('Success', 'Device has been permanently deleted.');
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Failed to delete device.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const insets = useSafeAreaInsets();
@@ -401,7 +428,7 @@ export default function AdminDashboardScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Device Summary Stats Grid (2x2) */}
+        {/* Device Summary Stats Grid */}
         {activeTab === 'devices' && (
           <View style={styles.statsGrid}>
             <View style={styles.statsRow}>
@@ -459,7 +486,7 @@ export default function AdminDashboardScreen() {
                   </Text>
                 </View>
                 <Text style={[styles.statCardLabel, statusFilter === 'APPROVED' && styles.activeStatCardLabel]}>
-                  Approved
+                  Approved (Active)
                 </Text>
               </TouchableOpacity>
 
@@ -479,6 +506,35 @@ export default function AdminDashboardScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {deviceCounts.expired > 0 && (
+              <View style={styles.statsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.statCard,
+                    styles.expiredCardBg,
+                    statusFilter === 'EXPIRED' && styles.activeExpiredCard,
+                    { flex: 1 },
+                  ]}
+                  onPress={() => setStatusFilter('EXPIRED')}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.statCardHeader}>
+                    <Ionicons
+                      name="hourglass-outline"
+                      size={16}
+                      color={statusFilter === 'EXPIRED' ? '#B45309' : '#D97706'}
+                    />
+                    <Text style={[styles.statCardNum, { color: '#B45309' }]}>
+                      {deviceCounts.expired}
+                    </Text>
+                  </View>
+                  <Text style={[styles.statCardLabel, { color: '#92400E' }]}>
+                    Expired (Reverted to Pending)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
@@ -490,13 +546,14 @@ export default function AdminDashboardScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.filterPillsContainer}
             >
-              {['ALL', 'ONLINE', 'OFFLINE', 'APPROVED', 'PENDING', 'DENIED'].map((f) => (
+              {['ALL', 'ONLINE', 'OFFLINE', 'APPROVED', 'PENDING', 'EXPIRED', 'DENIED'].map((f) => (
                 <TouchableOpacity
                   key={f}
                   style={[
                     styles.filterPill,
                     statusFilter === f && styles.activeFilterPill,
                     f === 'ONLINE' && statusFilter !== f && styles.onlineFilterPill,
+                    f === 'EXPIRED' && statusFilter !== f && styles.expiredFilterPill,
                   ]}
                   onPress={() => setStatusFilter(f)}
                 >
@@ -516,11 +573,20 @@ export default function AdminDashboardScreen() {
                       ]}
                     />
                   )}
+                  {f === 'EXPIRED' && (
+                    <View
+                      style={[
+                        styles.filterDot,
+                        { backgroundColor: statusFilter === 'EXPIRED' ? '#FFFFFF' : '#D97706' },
+                      ]}
+                    />
+                  )}
                   <Text
                     style={[
                       styles.filterPillText,
                       statusFilter === f && styles.activeFilterPillText,
                       f === 'ONLINE' && statusFilter !== f && { color: '#1B5E20' },
+                      f === 'EXPIRED' && statusFilter !== f && { color: '#B45309' },
                     ]}
                   >
                     {f}
@@ -617,6 +683,7 @@ export default function AdminDashboardScreen() {
                 onApprove={handleApproveDevice}
                 onDeny={handleDenyDevice}
                 onEdit={handleOpenEditDevice}
+                onDelete={handleDeleteDevice}
               />
             )}
             contentContainerStyle={styles.listContent}
@@ -790,6 +857,14 @@ const styles = StyleSheet.create({
     borderColor: '#28A745',
     backgroundColor: '#E8F5E9',
   },
+  expiredCardBg: {
+    backgroundColor: '#FFFDF5',
+    borderColor: '#FDE68A',
+  },
+  activeExpiredCard: {
+    borderColor: '#D97706',
+    backgroundColor: '#FEF3C7',
+  },
   statCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -836,6 +911,11 @@ const styles = StyleSheet.create({
   onlineFilterPill: {
     backgroundColor: '#E8F5E9',
     borderColor: '#C8E6C9',
+    borderWidth: 1,
+  },
+  expiredFilterPill: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
     borderWidth: 1,
   },
   filterDot: {
