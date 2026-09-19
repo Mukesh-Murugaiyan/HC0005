@@ -118,6 +118,29 @@ export default function UserDetailsScreen() {
     );
   };
 
+  const handleDeleteDevice = (dev) => {
+    Alert.alert(
+      'Delete Device',
+      `Permanently remove ${dev.device_name || 'this device'}? The user will need to re-register it to access the app.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deviceService.deleteDevice(dev.id);
+              if (user?.id) loadUserDevices(user.id);
+              Alert.alert('Success', 'Device has been permanently removed.');
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Failed to delete device.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <AuthGuard requiredRole="admin">
       <View style={[styles.container, { paddingTop: topPadding }]}>
@@ -302,24 +325,33 @@ export default function UserDetailsScreen() {
                       <Text style={styles.deviceFooterMetaText}>
                         OS: {dev.os_version || 'N/A'} • v{dev.app_version || '1.0.0'}
                       </Text>
-                      <View
-                        style={[
-                          styles.miniStatusBadge,
-                          dev.status === 'APPROVED' && styles.miniApproved,
-                          dev.status === 'PENDING' && styles.miniPending,
-                          dev.status === 'DENIED' && styles.miniDenied,
-                        ]}
-                      >
-                        <Text
+                      <View style={styles.deviceFooterRight}>
+                        <View
                           style={[
-                            styles.miniStatusText,
-                            dev.status === 'APPROVED' && styles.miniApprovedText,
-                            dev.status === 'PENDING' && styles.miniPendingText,
-                            dev.status === 'DENIED' && styles.miniDeniedText,
+                            styles.miniStatusBadge,
+                            dev.status === 'APPROVED' && styles.miniApproved,
+                            dev.status === 'PENDING' && styles.miniPending,
+                            dev.status === 'DENIED' && styles.miniDenied,
                           ]}
                         >
-                          {dev.status}
-                        </Text>
+                          <Text
+                            style={[
+                              styles.miniStatusText,
+                              dev.status === 'APPROVED' && styles.miniApprovedText,
+                              dev.status === 'PENDING' && styles.miniPendingText,
+                              dev.status === 'DENIED' && styles.miniDeniedText,
+                            ]}
+                          >
+                            {dev.status}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.miniDeleteBtn}
+                          onPress={() => handleDeleteDevice(dev)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                        </TouchableOpacity>
                       </View>
                     </View>
                   </View>
@@ -615,6 +647,18 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#868E96',
     flex: 1,
+  },
+  deviceFooterRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  miniDeleteBtn: {
+    padding: 3,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   miniStatusBadge: {
     paddingHorizontal: 6,

@@ -19,6 +19,10 @@ export default function DeviceApprovalBlockedView() {
 
   const isPending = deviceStatus === 'PENDING';
   const isDenied = deviceStatus === 'DENIED';
+  const isExpired =
+    isPending &&
+    deviceApprovalRecord?.subscription_expires_at &&
+    new Date(deviceApprovalRecord.subscription_expires_at).getTime() <= Date.now();
 
   const handleRefreshStatus = async () => {
     setChecking(true);
@@ -49,23 +53,30 @@ export default function DeviceApprovalBlockedView() {
           style={[
             styles.iconCircle,
             isPending ? styles.pendingIconBg : styles.deniedIconBg,
+            isExpired && { backgroundColor: '#FEF3C7' },
           ]}
         >
           <Ionicons
-            name={isPending ? 'time-outline' : 'ban-outline'}
+            name={isDenied ? 'ban-outline' : isExpired ? 'hourglass-outline' : 'time-outline'}
             size={42}
-            color={isPending ? '#D97706' : '#DC2626'}
+            color={isDenied ? '#DC2626' : isExpired ? '#B45309' : '#D97706'}
           />
         </View>
 
         <Text style={styles.title}>
-          {isPending ? 'Device Approval Pending' : 'Access Denied for Device'}
+          {isDenied
+            ? 'Access Denied for Device'
+            : isExpired
+            ? '30-Day Subscription Expired'
+            : 'Device Approval Pending'}
         </Text>
 
         <Text style={styles.subtitle} numberOfLines={2}>
-          {isPending
-            ? 'Your device approval is pending. Contact the administrator for access.'
-            : 'Access has been denied for this device. Please contact the administrator.'}
+          {isDenied
+            ? 'Access has been denied for this device. Please contact the administrator.'
+            : isExpired
+            ? 'Your 30-day access period has completed. Contact the administrator to renew access.'
+            : 'Your device approval is pending. Contact the administrator for access.'}
         </Text>
       </View>
 
